@@ -15,6 +15,11 @@
 // =============================================================================
 
 #include "mpi_operations.h"
+#include <time.h>
+#include <sys/time.h>
+
+#define GETTIME(t) gettimeofday(&t, NULL)
+#define DIFF_TIME_SECS(b,e) (float)((e.tv_sec - b.tv_sec)*1000000 + (e.tv_usec - b.tv_usec))/1000000
 
 namespace horovod {
 namespace common {
@@ -45,11 +50,23 @@ Status MPIAllreduce::Execute(std::vector<TensorTableEntry>& entries, const Respo
   timeline.ActivityStartAll(entries, MPI_ALLREDUCE);
   const void* sendbuf = entries.size() > 1 || first_entry.tensor->data() == first_entry.output->data()
                         ? MPI_IN_PLACE : first_entry.tensor->data();
+  char * verbose = getenv("HOROVOD_MPI_VERBOSE");
+  struct timeval start, end;
+  if (verbose) {
+    int size_bytes;
+    MPI_Type_size(mpi_context_->GetMPIDataType(first_entry.tensor), &size_bytes);
+    std::cout << "MPI_Allreduce Bytes: " << num_elements * size_bytes << "\n";
+    GETTIME(start);
+  }
   int op = MPI_Allreduce(sendbuf, buffer_data,
                          (int) num_elements,
                          mpi_context_->GetMPIDataType(first_entry.tensor),
                          mpi_context_->GetMPISumOp(first_entry.tensor->dtype()),
                          mpi_context_->GetMPICommunicator(Communicator::GLOBAL));
+ if (verbose) {
+    GETTIME(end);
+    std::cout << "MPI_Allreduce Time: " << DIFF_TIME_SECS(start, end) << " secs\n";
+  } 
   if (op != MPI_SUCCESS) {
     throw std::logic_error("MPI_Allreduce failed, see MPI output for details.");
   }
@@ -128,6 +145,14 @@ Status MPIAllgather::Execute(std::vector<TensorTableEntry>& entries, const Respo
 
   global_state_->timeline.ActivityStartAll(entries, MPI_ALLGATHER);
   auto dtype = mpi_context_->GetMPIDataType(first_entry.tensor->dtype());
+  char * verbose = getenv("HOROVOD_MPI_VERBOSE");
+  struct timeval start, end;
+  if (verbose) {
+    int size_bytes;
+    MPI_Type_size(dtype, &size_bytes);
+    std::cout << "MPI_Allgatherv Bytes: " << total_num_elements * size_bytes << "\n";
+    GETTIME(start);
+  }
   int op = MPI_Allgatherv(sendbuf != nullptr ? sendbuf : MPI_IN_PLACE,
                           (int) total_num_elements,
                           dtype,
@@ -136,6 +161,10 @@ Status MPIAllgather::Execute(std::vector<TensorTableEntry>& entries, const Respo
                           displcmnts,
                           dtype,
                           mpi_context_->GetMPICommunicator(Communicator::GLOBAL));
+ if (verbose) {
+    GETTIME(end);
+    std::cout << "MPI_Allgatherv Time: " << DIFF_TIME_SECS(start, end) << " secs\n";
+  } 
   if (op != MPI_SUCCESS) {
     throw std::logic_error("MPI_Allgatherv failed, see MPI output for details.");
   }
