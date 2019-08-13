@@ -17,6 +17,10 @@
 #include "mpi_operations.h"
 #include <time.h>
 #include <sys/time.h>
+#include <chrono>
+#include <ctime>
+#include <iomanip> // put_time
+#include <sstream> // stringstream
 
 #define GETTIME(t) gettimeofday(&t, NULL)
 #define DIFF_TIME_SECS(b,e) (float)((e.tv_sec - b.tv_sec)*1000000 + (e.tv_usec - b.tv_usec))/1000000
@@ -52,10 +56,13 @@ Status MPIAllreduce::Execute(std::vector<TensorTableEntry>& entries, const Respo
                         ? MPI_IN_PLACE : first_entry.tensor->data();
   char * verbose = getenv("HOROVOD_MPI_VERBOSE");
   struct timeval start, end;
+  uint64_t ts;
+  std::stringstream ss;
   if (verbose) {
-    int size_bytes;
-    MPI_Type_size(mpi_context_->GetMPIDataType(first_entry.tensor), &size_bytes);
-    std::cout << "MPI_Allreduce Bytes: " << num_elements * size_bytes << "\n";
+    auto now = std::chrono::system_clock::now();
+    ts = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
+    auto in_time_t = std::chrono::system_clock::to_time_t(now);
+    ss << std::put_time(std::localtime(&in_time_t), "%Y-%m-%d %X");
     GETTIME(start);
   }
   int op = MPI_Allreduce(sendbuf, buffer_data,
@@ -65,7 +72,15 @@ Status MPIAllreduce::Execute(std::vector<TensorTableEntry>& entries, const Respo
                          mpi_context_->GetMPICommunicator(Communicator::GLOBAL));
  if (verbose) {
     GETTIME(end);
-    std::cout << "MPI_Allreduce Time: " << DIFF_TIME_SECS(start, end) << " secs\n";
+    int size_bytes;
+    MPI_Type_size(mpi_context_->GetMPIDataType(first_entry.tensor), &size_bytes);
+    float secs = DIFF_TIME_SECS(start, end);
+    uint64_t bytes = size_bytes*num_elements;
+    float gbits = ((float)bytes*8)/(1000*1000*1000);
+    std::cout << "MPI_Allreduce: Starttime: " << ss.str() << " ts: " << ts << 
+      " Duration(secs): " << secs << " Size(bytes): " << 
+      bytes << " dtypeSize: " << size_bytes << 
+      " bandwidth(Gbps): " << gbits/secs << "\n";
   } 
   if (op != MPI_SUCCESS) {
     throw std::logic_error("MPI_Allreduce failed, see MPI output for details.");
@@ -147,10 +162,13 @@ Status MPIAllgather::Execute(std::vector<TensorTableEntry>& entries, const Respo
   auto dtype = mpi_context_->GetMPIDataType(first_entry.tensor->dtype());
   char * verbose = getenv("HOROVOD_MPI_VERBOSE");
   struct timeval start, end;
+  uint64_t ts;
+  std::stringstream ss;
   if (verbose) {
-    int size_bytes;
-    MPI_Type_size(dtype, &size_bytes);
-    std::cout << "MPI_Allgatherv Bytes: " << total_num_elements * size_bytes << "\n";
+    auto now = std::chrono::system_clock::now();
+    ts = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
+    auto in_time_t = std::chrono::system_clock::to_time_t(now);
+    ss << std::put_time(std::localtime(&in_time_t), "%Y-%m-%d %X");
     GETTIME(start);
   }
   int op = MPI_Allgatherv(sendbuf != nullptr ? sendbuf : MPI_IN_PLACE,
@@ -163,7 +181,14 @@ Status MPIAllgather::Execute(std::vector<TensorTableEntry>& entries, const Respo
                           mpi_context_->GetMPICommunicator(Communicator::GLOBAL));
  if (verbose) {
     GETTIME(end);
-    std::cout << "MPI_Allgatherv Time: " << DIFF_TIME_SECS(start, end) << " secs\n";
+    int size_bytes;
+    MPI_Type_size(dtype, &size_bytes);
+    uint64_t bytes = size_bytes * total_num_elements;
+    float gbits = ((float)bytes*8)/(1000*1000*1000);
+    float secs = DIFF_TIME_SECS(start, end);
+    std::cout << "MPI_Allgatherv: Starttime: " << ss.str() << " ts: " << ts << 
+      " Duration(secs): " << secs << " Size(bytes): " << 
+      bytes << " dtypeSize: " << size_bytes << " bandwidth(Gbps): " << gbits/secs << "\n";
   } 
   if (op != MPI_SUCCESS) {
     throw std::logic_error("MPI_Allgatherv failed, see MPI output for details.");

@@ -112,12 +112,14 @@ Status MLSLAllreduce::Execute(std::vector<TensorTableEntry>& entries, const Resp
 
   // Do allreduce.
   timeline.ActivityStartAll(entries, MLSL_ALLREDUCE);
+
   const void* sendbuf = entries.size() > 1 || first_entry.tensor->data() == first_entry.output->data()
                         ? buffer_data : first_entry.tensor->data();
   auto mlsl_req = mlsl_context_->dist->AllReduce((void*)sendbuf, buffer_data, num_elements,
                                                  GetMLSLDataType(first_entry.tensor),
                                                  MLSL::RT_SUM, MLSL::GT_DATA);
 
+  std::cout << "HVD/MLSL Allreduce called\n";
   try {
       MLSL::Environment::GetEnv().Wait(mlsl_req);
   } catch (...) {
@@ -214,6 +216,7 @@ Status MLSLAllgather::Execute(std::vector<TensorTableEntry>& entries, const Resp
   }
 
   global_state_->timeline.ActivityStartAll(entries, MLSL_ALLGATHER);
+  std::cout << "HVD/MLSL Allgather called\n";
   auto mlsl_req = mlsl_context_->dist->AllGatherv(sendbuf != nullptr ? (void*)sendbuf : buffer_data,
                                                   total_num_elements * element_size,
                                                   buffer_data, rcounts,
